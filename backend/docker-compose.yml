@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: fintrust_postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-fintrust}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-fintrust_secure_password}
+      POSTGRES_DB: ${DB_NAME:-fintrust_db}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-fintrust}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fintrust_network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fintrust_backend
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://fintrust:fintrust_secure_password@postgres:5432/fintrust_db}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      DEBUG: ${DEBUG:-False}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000", "http://localhost:3001"]}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    networks:
+      - fintrust_network
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # PgAdmin for Database Management (Optional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: fintrust_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@fintrust.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - fintrust_network
+    profiles:
+      - debug
+
+volumes:
+  postgres_data:
+
+networks:
+  fintrust_network:
+    driver: bridge
